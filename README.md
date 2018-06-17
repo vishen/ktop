@@ -39,7 +39,6 @@ Install the usual Go way:
 ## TODO
 
 ```
-- Order changes when ordering by CPU or MEM because we have to sort the containers each time
 - Remove all magic +1, +5 numbers
 - Fix hack for resizing; currently we just reduce pod and container name to reasonable size
 - Remove locks from display

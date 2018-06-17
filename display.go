@@ -129,6 +129,9 @@ func sortMetricsByOrder(podMetrics []PodMetrics) {
 		sort.Slice(podMetrics, func(i, j int) bool {
 			pi := podMetrics[i]
 			pj := podMetrics[j]
+			if pi.Pod == pj.Pod {
+				return pi.Container < pj.Container
+			}
 			return pi.Pod < pj.Pod
 		})
 		return
@@ -137,7 +140,14 @@ func sortMetricsByOrder(podMetrics []PodMetrics) {
 	sort.Slice(podMetrics, func(i, j int) bool {
 		pi := podMetrics[i]
 		pj := podMetrics[j]
-		return fromUsage(pi).Cmp(*fromUsage(pj)) == order
+		result := fromUsage(pi).Cmp(*fromUsage(pj))
+		if result == 0 {
+			if pi.Pod == pj.Pod {
+				return pi.Container < pj.Container
+			}
+			return pi.Pod < pj.Pod
+		}
+		return result == order
 	})
 }
 
