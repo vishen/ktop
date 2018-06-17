@@ -62,7 +62,7 @@ func (dh *DisplayHeader) getPossibleName(name string) string {
 func (dh *DisplayHeader) GetLength() int {
 	if dh.forceMaxLength > 0 {
 		// TODO(vishen): WHY DO I NEED THIS?!!!!!
-		return dh.forceMaxLength + 5
+		return dh.forceMaxLength + 3
 	}
 	if dh.maxLength < minRowSize {
 		return minRowSize
@@ -157,7 +157,8 @@ func updateScreen() {
 	// TODO: Remove this lock
 	updateLock.Lock()
 	defer updateLock.Unlock()
-	termbox.Clear(termbox.ColorDefault, termbox.ColorDefault)
+	// termbox.Clear(termbox.ColorDefault, termbox.ColorDefault)
+	termbox.Clear(termbox.ColorBlack, termbox.ColorBlack)
 
 	headerString := fmt.Sprintf("filter: %s", filterString)
 	outputWord(headerString, 0, 0, headerColor)
@@ -230,10 +231,11 @@ func updateScreen() {
 			// TODO(vishen): FIX THIS HACK!
 			if totalHeaderWidth > termWidth {
 				if header.name == "POD" {
-					header.forceMaxLength = 30
-					totalHeaderWidth -= 30
+					header.forceMaxLength = 25
 				} else if header.name == "CONTAINER" {
-					header.forceMaxLength = 30
+					header.forceMaxLength = 20
+				} else if header.name == "CPU" || header.name == "MEM" {
+					header.forceMaxLength = 5
 				}
 			}
 			outputWord(header.GetName(), currentX, 1, headingColor)
