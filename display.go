@@ -157,7 +157,9 @@ func setMouseClick(x, y int, key termbox.Key) {
 	defer updateLock.Unlock()
 	switch key {
 	case termbox.MouseLeft:
-		selectedID = podMetrics[y-2].UniqueID()
+		if len(podMetrics) >= y-2 {
+			selectedID = podMetrics[y-2].UniqueID()
+		}
 	case termbox.MouseRight:
 		selectedID = ""
 	}
