@@ -17,15 +17,18 @@ const (
 )
 
 var (
-	termWidth    int
-	termHeight   int
-	filterString string
-	mouseX       int
-	mouseY       int
-	orderOption  OrderOption
-	podMetrics   []PodMetrics
-	selectedID   string
-	updateLock   sync.Mutex
+	termWidth          int
+	termHeight         int
+	filterString       string
+	mouseX             int
+	mouseY             int
+	orderOption        OrderOption
+	podMetrics         []PodMetrics
+	selectedID         string
+	selectedIndex      int = -1
+	infoString         string
+	updateLock         sync.Mutex
+	previousPodMetrics = map[string]PodMetrics{}
 )
 
 type TermColor struct {
@@ -34,11 +37,13 @@ type TermColor struct {
 }
 
 var (
-	normalColor      = TermColor{bg: termbox.ColorBlack, fg: termbox.ColorWhite}
-	headingColor     = TermColor{bg: termbox.ColorBlack, fg: termbox.ColorWhite | termbox.AttrBold}
-	highlightedColor = TermColor{bg: termbox.ColorWhite, fg: termbox.ColorBlack}
-	headerColor      = TermColor{bg: termbox.ColorWhite, fg: termbox.ColorBlack}
-	footerColor      = TermColor{bg: termbox.ColorWhite, fg: termbox.ColorBlack}
+	normalColor         = TermColor{bg: termbox.ColorBlack, fg: termbox.ColorWhite}
+	headingColor        = TermColor{bg: termbox.ColorBlack, fg: termbox.ColorWhite | termbox.AttrBold}
+	highlightedColor    = TermColor{bg: termbox.ColorWhite, fg: termbox.ColorBlack}
+	changeIncreaseColor = TermColor{bg: termbox.ColorGreen, fg: termbox.ColorWhite | termbox.AttrBold}
+	changeDecreaseColor = TermColor{bg: termbox.ColorRed, fg: termbox.ColorWhite | termbox.AttrBold}
+	headerColor         = TermColor{bg: termbox.ColorWhite, fg: termbox.ColorBlack}
+	footerColor         = TermColor{bg: termbox.ColorWhite, fg: termbox.ColorBlack}
 )
 
 type DisplayHeader struct {
@@ -157,11 +162,38 @@ func setMouseClick(x, y int, key termbox.Key) {
 	defer updateLock.Unlock()
 	switch key {
 	case termbox.MouseLeft:
-		if len(podMetrics) >= y-2 {
-			selectedID = podMetrics[y-2].UniqueID()
+		if len(podMetrics) >= y-2 && y > 1 {
+			selectedIndex = y - 2
+			selectedID = podMetrics[selectedIndex].UniqueID()
 		}
 	case termbox.MouseRight:
 		selectedID = ""
+	}
+}
+
+func updateSelectedID(i int) {
+	// TODO: Remove this lock
+	updateLock.Lock()
+	defer updateLock.Unlock()
+
+	selectedIndex += i
+	if selectedIndex < 0 {
+		selectedIndex = 0
+	} else if selectedIndex >= len(podMetrics) {
+		selectedIndex = len(podMetrics) - 1
+	}
+	selectedID = podMetrics[selectedIndex].UniqueID()
+}
+
+func snapshot() {
+	// If we are toggling disable snapshot
+	if len(previousPodMetrics) > 0 {
+		previousPodMetrics = map[string]PodMetrics{}
+		return
+	}
+	// Make a copy so we can tell what has changed
+	for _, pm := range podMetrics {
+		previousPodMetrics[pm.UniqueID()] = pm
 	}
 }
 
@@ -169,13 +201,12 @@ func updateScreen() {
 	// TODO: Remove this lock
 	updateLock.Lock()
 	defer updateLock.Unlock()
-	// termbox.Clear(termbox.ColorDefault, termbox.ColorDefault)
 	termbox.Clear(termbox.ColorBlack, termbox.ColorBlack)
 
 	headerString := fmt.Sprintf("filter: %s", filterString)
 	outputWord(headerString, 0, 0, headerColor)
 
-	// TODO: Cache this values, otherwise we get noticable lag when typing
+	// TODO: Cache these values, otherwise we get noticable lag when typing
 	// as there is lock competition; this should ideally happen in the background.
 	// This shouldn't use a lock if possible.
 	allPodMetrics := kubeMetrics.GetMetrics()
@@ -259,25 +290,60 @@ func updateScreen() {
 
 	for y, pr := range podMetrics {
 		// Don't let the data go over the footer
-		if y > termHeight-2 {
+		if y > termHeight-3 {
 			break
-		}
-
-		color := normalColor
-		if pr.UniqueID() == selectedID {
-			color = highlightedColor
 		}
 
 		currentX := 0
 		for _, header := range displayHeaders {
+			color := normalColor
 			value := header.GetFrom(pr)
+			// TODO(vishen): super hacky, but will work for now
+			switch header.name {
+			case "CPU":
+				if p, ok := previousPodMetrics[pr.UniqueID()]; ok {
+					switch pr.Usage.Cpu().Cmp(*p.Usage.Cpu()) {
+					case 1:
+						color = changeIncreaseColor
+						value = fmt.Sprintf("%s^%s", p.CPU, value)
+					case -1:
+						color = changeDecreaseColor
+						value = fmt.Sprintf("%sv%s", p.CPU, value)
+					default:
+						color = normalColor
+					}
+				}
+			case "MEM":
+				if p, ok := previousPodMetrics[pr.UniqueID()]; ok {
+					switch pr.Usage.Memory().Cmp(*p.Usage.Memory()) {
+					case 1:
+						color = changeIncreaseColor
+						value = fmt.Sprintf("%s^%s", p.MEM, value)
+					case -1:
+						color = changeDecreaseColor
+						value = fmt.Sprintf("%sv%s", p.MEM, value)
+					default:
+						color = normalColor
+					}
+				}
+			}
+			if pr.UniqueID() == selectedID {
+				color = highlightedColor
+				selectedIndex = y
+				infoString = pr.InfoString()
+			}
 			outputWord(value, currentX, y+2, color)
 			currentX += header.GetLength() + 1
 		}
 	}
 
+	outputWord(infoString, 0, termHeight-3, footerColor)
+
 	// Draw footer with options
-	footerString := "Sort by (1) CPU Dec / (2) CPU Asc / (3) Mem Dec / (4) Mem Asc | (ESC) Quit"
+	footerString := "Sort by (1) CPU Dec / (2) CPU Asc / (3) Mem Dec / (4) Mem Asc | (SPACE) Snapshot | (ESC) Quit"
+	if len(previousPodMetrics) > 0 {
+		footerString += " -- Snapshot taken!"
+	}
 	outputWord(footerString, 0, termHeight-2, footerColor)
 
 	termbox.Flush()

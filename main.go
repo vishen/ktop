@@ -8,6 +8,7 @@ import (
 	termbox "github.com/nsf/termbox-go"
 
 	// Kubernetes
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 
 	// Kubernetes metrics
@@ -47,16 +48,24 @@ func main() {
 		},
 	).ClientConfig()
 	if err != nil {
-		log.Fatalf("unable to create k8s client config: %s\n", err)
+		log.Fatalf("unable to create k8s client config: %s", err)
 	}
 
-	log.Printf("connecting to kubernetes cluster metrics\n")
+	kubeClient, err := kubernetes.NewForConfig(clientConfig)
+	if err != nil {
+		log.Fatalf("unable to create k8s client: %s\n", err)
+	}
+
+	log.Printf("connecting to kubernetes cluster metrics")
 	metricsClient, err := metricsclientset.NewForConfig(clientConfig)
 	if err != nil {
-		log.Fatalf("unable to create metrics client: %s\n", err)
+		log.Fatalf("unable to create metrics client: %s", err)
 	}
 
-	kubeMetrics = KubeMetrics{metricsClient: metricsClient}
+	kubeMetrics = KubeMetrics{
+		metricsClient: metricsClient,
+		kubeClient:    kubeClient,
+	}
 	if err := kubeMetrics.FetchMetrics(); err != nil {
 		log.Fatalf("unable to get kubernetes metrics: %s", err)
 	}
@@ -87,25 +96,33 @@ func main() {
 			termWidth, termHeight = ev.Width, ev.Height
 			updateScreen()
 		case termbox.EventKey:
-			if ev.Key == termbox.KeyEsc {
+			switch ev.Key {
+			case termbox.KeyEsc:
 				return
-			} else if ev.Key == termbox.KeyBackspace || ev.Key == termbox.KeyBackspace2 {
+			case termbox.KeySpace:
+				snapshot()
+			case termbox.KeyBackspace, termbox.KeyBackspace2:
 				if len(filterString) > 0 {
 					filterString = filterString[:len(filterString)-1]
 				}
-			}
-			switch ch := ev.Ch; ch {
-			case '1': // key 1
-				setOrderOption(OrderCPUDec)
-			case '2': // key 2
-				setOrderOption(OrderCPUAsc)
-			case '3': // key 3
-				setOrderOption(OrderMEMDec)
-			case '4': // key 4
-				setOrderOption(OrderMEMAsc)
+			case termbox.KeyArrowDown:
+				updateSelectedID(1)
+			case termbox.KeyArrowUp:
+				updateSelectedID(-1)
 			default:
-				if (ch >= 'a' && ch <= 'z') || ch == '-' || ch == '_' {
-					filterString += string(ch)
+				switch ch := ev.Ch; ch {
+				case '1': // key 1
+					setOrderOption(OrderCPUDec)
+				case '2': // key 2
+					setOrderOption(OrderCPUAsc)
+				case '3': // key 3
+					setOrderOption(OrderMEMDec)
+				case '4': // key 4
+					setOrderOption(OrderMEMAsc)
+				default:
+					if (ch >= 'a' && ch <= 'z') || ch == '-' || ch == '_' {
+						filterString += string(ch)
+					}
 				}
 			}
 			updateScreen()
